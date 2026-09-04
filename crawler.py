@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
 OUTPUT = Path("output/latest_news.json")
+HWPX_OUTPUT = Path("output/latest_news.hwpx")
 
 HEADERS = {
     "User-Agent": (
@@ -235,6 +236,46 @@ def dedupe(items: list[dict]) -> list[dict]:
     return result
 
 
+
+def create_hwpx(articles: list[dict], article_date, updated_at: datetime) -> None:
+    """최신 뉴스 목록을 한글 HWPX 문서로 생성합니다."""
+    from hwpx import HwpxDocument
+
+    HWPX_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+
+    doc = HwpxDocument.new()
+    try:
+        doc.add_paragraph("■ 부산시정 주요 뉴스 보도 수집")
+        doc.add_paragraph(f"기사 기준일: {article_date.isoformat()}")
+        doc.add_paragraph(f"수집 시각: {updated_at.strftime('%Y-%m-%d %H:%M:%S KST')}")
+        doc.add_paragraph("")
+
+        for idx, item in enumerate(articles, 1):
+            title = item.get("title", "").strip()
+            source = item.get("source", "").strip()
+            keyword = item.get("keyword", "부산시").strip()
+            summary = item.get("summary", "").strip()
+            url = item.get("url", "").strip()
+            published_at = item.get("published_at", "").strip()
+
+            doc.add_paragraph(f"{idx}. ({keyword}) [{source}] {title}")
+            if published_at:
+                doc.add_paragraph(f"보도일시: {published_at}")
+            if summary:
+                doc.add_paragraph(f"주요 내용: {summary}")
+            if url:
+                doc.add_paragraph(f"기사 원문: {url}")
+            doc.add_paragraph("")
+
+        doc.save_to_path(str(HWPX_OUTPUT))
+        print(f"[DONE] HWPX saved -> {HWPX_OUTPUT}")
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
 def main():
     now = datetime.now(KST)
     collected: list[dict] = []
@@ -287,6 +328,9 @@ def main():
         encoding="utf-8",
     )
     print(f"[DONE] {len(latest)} articles saved for {latest_date} -> {OUTPUT}")
+
+    # 같은 최신 기사 목록으로 HWPX 한글 문서도 함께 생성
+    create_hwpx(latest, latest_date, now)
 
 
 if __name__ == "__main__":
