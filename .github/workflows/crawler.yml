@@ -1,9 +1,9 @@
-name: Weekly Government Notice Crawler
+name: Daily Government Notice Crawler
 
 on:
   schedule:
-    # 매주 월요일 KST 09:00 (UTC 00:00)
-    - cron: '0 0 * * 1'
+    # 매일 KST 02:00 (UTC 17:00)
+    - cron: '0 17 * * *'
   workflow_dispatch: # 수동 실행 지원
 
 jobs:
