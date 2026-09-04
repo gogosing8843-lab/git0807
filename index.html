@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>부산시정 정책 뉴스 수집 시스템</title>
+    <meta name="description" content="부산일보 및 국제신문 부산시 정책 뉴스 자동 수집 및 한글(HWPX) 문서 생성 시스템">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="./static/css/style.css">
+</head>
+<body>
+    <!-- Top Header -->
+    <header class="navbar">
+        <div class="container navbar-content">
+            <div class="logo">
+                <i class="fa-solid fa-newspaper logo-icon"></i>
+                <div class="logo-text">
+                    <span class="brand-title">부산시정 뉴스 인텔리전스</span>
+                    <span class="brand-sub">Busan Policy News Automation System</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="btn-crawl" class="btn btn-primary">
+                    <i class="fa-solid fa-rotate-right icon-spin-hover"></i> 최신 뉴스 새로고침
+                </button>
+                <a id="btn-download" href="/api/download-hwpx" class="btn btn-success" download>
+                    <i class="fa-solid fa-file-word"></i> HWPX 한글다운로드
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Body -->
+    <main class="container main-content">
+        <!-- Hero Summary Cards -->
+        <section class="stats-grid">
+            <div class="stat-card glass-card">
+                <div class="stat-icon bg-blue">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">총 수집 뉴스</span>
+                    <h2 id="stat-total" class="stat-number">0</h2>
+                </div>
+            </div>
+
+            <div class="stat-card glass-card">
+                <div class="stat-icon bg-cyan">
+                    <i class="fa-solid fa-building-columns"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">부산일보</span>
+                    <h2 id="stat-busan" class="stat-number">0</h2>
+                </div>
+            </div>
+
+            <div class="stat-card glass-card">
+                <div class="stat-icon bg-orange">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">국제신문</span>
+                    <h2 id="stat-kookje" class="stat-number">0</h2>
+                </div>
+            </div>
+
+            <div class="stat-card glass-card">
+                <div class="stat-icon bg-purple">
+                    <i class="fa-regular fa-clock"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">최종 수집 시간</span>
+                    <span id="stat-time" class="stat-time-text">대기 중...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Filter and Search Toolbar -->
+        <section class="toolbar-section glass-card">
+            <div class="toolbar-top">
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="search-input" placeholder="기사 제목 또는 내용 검색...">
+                </div>
+
+                <div class="filter-group">
+                    <span class="filter-label"><i class="fa-solid fa-newspaper"></i> 언론사:</span>
+                    <button class="filter-btn active" data-source="all">전체</button>
+                    <button class="filter-btn" data-source="부산일보">부산일보</button>
+                    <button class="filter-btn" data-source="국제신문">국제신문</button>
+                </div>
+            </div>
+
+            <div class="toolbar-keywords">
+                <span class="filter-label"><i class="fa-solid fa-tags"></i> 주요 키워드:</span>
+                <div class="keyword-tags" id="keyword-container">
+                    <span class="tag-chip active" data-keyword="all">전체</span>
+                    <span class="tag-chip" data-keyword="부산시">#부산시</span>
+                    <span class="tag-chip" data-keyword="시정">#시정</span>
+                    <span class="tag-chip" data-keyword="정책">#정책</span>
+                    <span class="tag-chip" data-keyword="전재수">#전재수</span>
+                    <span class="tag-chip" data-keyword="가덕도">#가덕도신공항</span>
+                    <span class="tag-chip" data-keyword="북항">#북항재개발</span>
+                    <span class="tag-chip" data-keyword="도시철도">#도시철도</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Content Split: News Grid & HWPX Document Live Preview -->
+        <div class="content-layout">
+            <!-- News Cards Grid -->
+            <section class="news-section">
+                <div class="section-header">
+                    <h3><i class="fa-solid fa-list-check"></i> 최신 날짜 정책 뉴스 보도 목록 (<span id="showing-count">0</span>)</h3>
+                    <span class="notice-badge"><i class="fa-solid fa-shield-halved"></i> 오피니언/사설 제외됨</span>
+                </div>
+
+                <div id="loading-spinner" class="loading-state hidden">
+                    <div class="spinner"></div>
+                    <p>부산일보 및 국제신문 최신 뉴스 크롤링 중입니다...</p>
+                </div>
+
+                <div id="news-grid" class="news-grid">
+                    <!-- Dynamic News Cards Injection -->
+                </div>
+
+                <div id="empty-state" class="empty-state hidden">
+                    <i class="fa-solid fa-folder-open empty-icon"></i>
+                    <p>조건에 맞는 정책 뉴스가 없습니다.</p>
+                </div>
+            </section>
+
+            <!-- HWPX Live Document Preview Panel -->
+            <aside class="preview-panel glass-card">
+                <div class="preview-header">
+                    <h4><i class="fa-solid fa-file-code"></i> HWPX 한글 양식 미리보기</h4>
+                    <span class="hwpx-badge">Standard HWPX</span>
+                </div>
+                <div class="preview-paper" id="preview-paper">
+                    <div class="paper-title">■ 부산시정 주요 뉴스 보도 수집</div>
+                    <div class="paper-subtitle" id="paper-date">날짜: YYYY-MM-DD</div>
+                    <hr class="paper-divider">
+                    <div id="paper-content" class="paper-content">
+                        <!-- Dynamic Document Preview List -->
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-content">
+            <p>© 2026 부산시정 정책 뉴스 수집 자동화 시스템 | 매일 02:00 KST 최신 날짜 기사 자동 갱신</p>
+        </div>
+    </footer>
+
+    <!-- Custom JS -->
+    <script src="./static/js/app.js"></script>
+</body>
+</html>

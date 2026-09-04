@@ -1,0 +1,23 @@
+[build]
+  publish = "."
+  command = "echo 'Deploying Busan News Policy Dashboard to Netlify'"
+
+[[redirects]]
+  from = "/api/news"
+  to = "/output/latest_news.json"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/output/*.json"
+  [headers.values]
+    Cache-Control = "no-store, no-cache, must-revalidate, max-age=0"
+
+[[headers]]
+  for = "/api/news"
+  [headers.values]
+    Cache-Control = "no-store, no-cache, must-revalidate, max-age=0"
