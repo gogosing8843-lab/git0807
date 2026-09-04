@@ -39,15 +39,15 @@ jobs:
         run: |
           python crawler.py
 
-      - name: Commit latest news
+      - name: Commit latest news and HWPX
         run: |
-          if git diff --quiet -- output/latest_news.json; then
-            echo "No news JSON changes to commit."
+          if git diff --quiet -- output/latest_news.json output/latest_news.hwpx; then
+            echo "No news changes to commit."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add output/latest_news.json
-          git commit -m "chore: update daily Busan policy news"
+          git add output/latest_news.json output/latest_news.hwpx
+          git commit -m "chore: update daily Busan policy news and HWPX"
           git push
