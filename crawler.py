@@ -1,4 +1,4 @@
-# VERIFIED_V2_20260905 - "혼유 사고" 포함
+# VERIFIED_V3_20260905 - 정책현안 우선 / 부산일보 보강 / 문두잡음 제거
 from __future__ import annotations
 
 import json
@@ -61,7 +61,8 @@ DEPARTMENT_RULES = [
                       "예인선", "선박", "오륙도", "해경"]),
     ("신공항추진본부", ["가덕도", "신공항"]),
     ("디지털경제실", ["AI", "인공지능", "경제", "산업", "기업", "수출",
-                      "생산", "투자", "고용", "제조업", "스타트업"]),
+                      "생산", "투자", "고용", "제조업", "스타트업",
+                      "주유소", "석유", "혼유", "에너지"]),
     ("청년산학국", ["청년", "대학", "산학", "창업재단"]),
     ("관광마이스국", ["관광", "마이스", "MICE", "해양레저", "축제", "관광단지"]),
     ("교통혁신국", ["버스", "이륜차", "교통", "택시", "도로", "주차"]),
@@ -113,31 +114,63 @@ def soup_get(url: str) -> BeautifulSoup:
 
 
 def collect_listing_links(source: str, listing_url: str, limit: int = 80) -> list[str]:
-    soup = soup_get(listing_url)
+    # 부산일보 /all/이 동적 페이지일 때를 대비해 지면보기 페이지도 함께 탐색
+    listing_pages = [listing_url]
+    if source == "부산일보":
+        listing_pages.extend([
+            "https://www.busan.com/newspaper/",
+            "https://www.busan.com/all",
+        ])
+
     found: list[str] = []
 
-    for a in soup.find_all("a", href=True):
-        href = a.get("href", "").strip()
-        if not href:
+    for page_url in listing_pages:
+        try:
+            soup = soup_get(page_url)
+        except Exception as exc:
+            print(f"[WARN] listing fetch failed: {source} {page_url} -> {exc}")
             continue
-        full = urljoin(listing_url, href)
 
-        if source == "부산일보":
-            if "busan.com" not in full:
-                continue
-            if not any(token in full for token in ["/view/", "/article/", "news", "code="]):
-                continue
-        else:
-            if "kookje.co.kr" not in full or "newsbody.asp" not in full:
+        for a in soup.find_all("a", href=True):
+            href = a.get("href", "").strip()
+            if not href:
                 continue
 
-        full = full.split("#")[0]
-        if full not in found:
-            found.append(full)
+            full = urljoin(page_url, href).split("#")[0]
+
+            if source == "부산일보":
+                if "busan.com" not in full:
+                    continue
+
+                # 부산일보 실제 기사 URL 형태를 넓게 허용하되
+                # 가이드/회원/생활정보 같은 비기사 페이지는 제외
+                if any(x in full for x in [
+                    "/guide/", "/faq/", "/member/", "/login", "/mypage/",
+                    "lifeplus.busan.com", "/html/board/"
+                ]):
+                    continue
+
+                if not any(token in full for token in [
+                    "/view/", "/article/", "/news/", "newsController.do",
+                    "code=", "idxno=", "articleNo="
+                ]):
+                    continue
+            else:
+                if "kookje.co.kr" not in full or "newsbody.asp" not in full:
+                    continue
+
+            if full not in found:
+                found.append(full)
+
+            if len(found) >= limit:
+                break
+
         if len(found) >= limit:
             break
 
+    print(f"[INFO] {source}: {len(found)} candidate links")
     return found
+
 
 
 def _walk_json(value):
@@ -343,29 +376,53 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
 
 
 def _strip_leading_caption_and_wire(text: str) -> str:
+    """기사 맨 앞의 통신사명·사진/DB 캡션을 보고서 문장에서 제거합니다."""
     text = clean_text(text)
-    text = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", text)
+    if not text:
+        return ""
+
+    # '연합뉴스 부산의...', '국제신문DB 소방시설...'처럼 문장부호 없이 붙는 경우
+    leading_noise = [
+        r"^(?:연합뉴스|뉴시스|뉴스1)\s*",
+        r"^(?:국제신문\s*DB|국제신문DB|부산일보\s*DB|부산일보DB)\s*",
+        r"^(?:사진|자료사진)\s*(?:=|:)?\s*",
+    ]
+    changed = True
+    while changed:
+        before = text
+        for pat in leading_noise:
+            text = re.sub(pat, "", text, flags=re.I)
+        text = clean_text(text)
+        changed = (text != before)
 
     sentences = re.split(r'(?<=[.!?。！？])\s+', text)
     cleaned = []
+
     for i, sentence in enumerate(sentences):
         sentence = clean_text(sentence)
         if not sentence:
             continue
 
-        # 기사 맨 앞 사진 설명/제공 문구 제거
-        if i <= 1 and (
-            "제공" in sentence
-            or "자료사진" in sentence
-            or ("사진" in sentence and any(x in sentence for x in ["촬영", "모습", "밝히며"]))
-        ):
+        # 앞 2문장 안의 전형적인 사진 캡션 제거
+        caption_like = (
+            "자료사진" in sentence
+            or "국제신문DB" in sentence
+            or "부산일보DB" in sentence
+            or re.search(r"(?:해경|부산시|경찰|소방|구청)\s*제공", sentence)
+            or ("사진" in sentence and any(x in sentence for x in ["촬영", "모습", "제공"]))
+        )
+        if i <= 1 and caption_like:
             continue
 
-        cleaned.append(sentence)
+        sentence = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", sentence)
+        sentence = re.sub(r"^(?:국제신문\s*DB|국제신문DB|부산일보\s*DB|부산일보DB)\s*", "", sentence)
+        sentence = clean_text(sentence)
 
-    result = " ".join(cleaned)
-    result = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", result)
-    return clean_text(result)
+        if sentence:
+            cleaned.append(sentence)
+
+    return clean_text(" ".join(cleaned))
+
 
 
 def _split_korean_sentences(text: str) -> list[str]:
@@ -489,7 +546,7 @@ def extract_body_and_summaries(soup: BeautifulSoup, source: str, title: str) -> 
         tag = soup.select_one(selector)
         if not tag or not tag.get("content"):
             continue
-        raw = _clean_article_text(tag["content"])
+        raw = _strip_leading_caption_and_wire(_clean_article_text(tag["content"]))
         # '...' 또는 '..'로 잘린 설명은 그대로 보고서에 넣지 않습니다.
         if len(raw) < 80 or raw.endswith("..") or raw.endswith("..."):
             continue
@@ -569,30 +626,53 @@ def choose_section(title: str, summary: str) -> str:
 
 def importance_score(item: dict) -> int:
     text = f"{item.get('title', '')} {item.get('summary', '')} {item.get('report_summary', '')}"
+    title = item.get("title", "")
     score = 0
 
-    score += sum(2 for word in MAJOR_ISSUE_WORDS if word in text)
-
+    # 부산시정과 직접 연결된 현안
     if "부산시" in text or "부산광역시" in text:
-        score += 6
-    if "시의회" in text or "시장" in text:
-        score += 4
+        score += 14
+    if any(x in text for x in ["시의회", "시장", "시청", "조례", "예산"]):
+        score += 9
     if any(x in text for x in ["정부", "국회", "특별법", "국정과제"]):
-        score += 4
-    if any(x in text for x in ["사고", "실종", "재난", "중대재해", "싱크홀", "붕괴"]):
-        score += 5
-    if any(x in text for x in ["가덕도", "신공항", "북항", "해수부", "북극항로"]):
-        score += 5
-    if re.search(r"\d+\s*(억|조|명|건|%|km|m|대|척)", text):
-        score += 2
-    if any(x in text for x in ["확정", "발의", "착공", "개통", "폐지", "추진", "투입"]):
-        score += 2
+        score += 8
 
-    # 단순 날씨/생활정보는 주요 현안 선정에서 크게 감점
-    if any(re.search(pat, item.get("title", "")) for pat in LOW_VALUE_TITLE_PATTERNS):
-        score -= 20
+    # 대형 정책·개발·교통·산업 현안
+    if any(x in text for x in [
+        "가덕도", "신공항", "북항", "해수부", "북극항로",
+        "도시철도", "사상-하단", "재개발", "재건축", "정비사업",
+        "산업", "기업", "투자", "수출", "일자리", "주거", "복지",
+    ]):
+        score += 8
+
+    # 시민 안전상 파급이 큰 사건은 주요 현안으로 인정
+    if any(x in text for x in [
+        "대형사고", "침몰", "전복", "실종", "재난",
+        "중대재해", "싱크홀", "붕괴", "침수",
+    ]):
+        score += 7
+
+    if re.search(r"\d+\s*(억|조|명|건|%|km|m|대|척|가구)", text):
+        score += 3
+    if any(x in text for x in [
+        "확정", "발의", "착공", "개통", "추진", "투입",
+        "지원", "협약", "유치", "선정", "계획",
+    ]):
+        score += 4
+
+    # 일반적인 법원·형사 단신은 첫 장 TOP3에서 후순위
+    if any(x in title for x in [
+        "벌금형", "징역", "기소", "재판", "자격증 빌려",
+        "음주운전", "절도", "폭행",
+    ]):
+        score -= 14
+
+    # 단순 날씨/생활정보는 크게 감점
+    if any(re.search(pat, title) for pat in LOW_VALUE_TITLE_PATTERNS):
+        score -= 25
 
     return score
+
 
 
 def relevant_policy_article(title: str, summary: str) -> bool:
@@ -690,11 +770,28 @@ def create_hwpx(articles: list[dict], article_date, updated_at: datetime) -> Non
         _add_para(doc, f"{article_date.isoformat()}  |  수집 {updated_at.strftime('%H:%M')} KST")
         _add_para(doc, "")
 
-        top_issues = sorted(
+        ranked = sorted(
             articles,
             key=lambda x: (x.get("importance", 0), x.get("published_at", "")),
             reverse=True,
-        )[:3]
+        )
+
+        # 기본은 중요도 순. 부산일보·국제신문이 모두 있으면 한 신문에만
+        # 치우치지 않도록 상위권에서 출처 다양성을 확보합니다.
+        top_issues = []
+        for item in ranked:
+            if len(top_issues) >= 3:
+                break
+            if item not in top_issues:
+                top_issues.append(item)
+
+        if len({x.get("source") for x in top_issues}) == 1:
+            other = next(
+                (x for x in ranked[3:] if x.get("source") != top_issues[0].get("source")),
+                None,
+            )
+            if other and other.get("importance", 0) >= top_issues[-1].get("importance", 0) - 3:
+                top_issues[-1] = other
 
         top_urls = {item["url"] for item in top_issues}
 
