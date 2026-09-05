@@ -1,4 +1,4 @@
-# VERIFIED_V3_20260905 - 정책현안 우선 / 부산일보 보강 / 문두잡음 제거
+# VERIFIED_V4_20260905 - 부산일보 섹션수집 보강 / 2쪽 기사링크 제거
 from __future__ import annotations
 
 import json
@@ -118,6 +118,11 @@ def collect_listing_links(source: str, listing_url: str, limit: int = 80) -> lis
     listing_pages = [listing_url]
     if source == "부산일보":
         listing_pages.extend([
+            "https://www.busan.com/",
+            "https://www.busan.com/society/",
+            "https://www.busan.com/politics/",
+            "https://www.busan.com/economy/",
+            "https://www.busan.com/marine/",
             "https://www.busan.com/newspaper/",
             "https://www.busan.com/all",
         ])
@@ -151,6 +156,7 @@ def collect_listing_links(source: str, listing_url: str, limit: int = 80) -> lis
                     continue
 
                 if not any(token in full for token in [
+                    "/view/busan/view.php?code=",
                     "/view/", "/article/", "/news/", "newsController.do",
                     "code=", "idxno=", "articleNo="
                 ]):
@@ -846,7 +852,7 @@ def create_hwpx(articles: list[dict], article_date, updated_at: datetime) -> Non
                     doc,
                     f"    - <{source_short(item.get('source', ''))}> {item.get('summary', '')}"
                 )
-                _add_para(doc, f"      [▸기사] {item.get('url', '')}")
+                # 둘째 장 이후 본문에는 기사 링크 표기를 넣지 않습니다.
 
         doc.save_to_path(str(HWPX_OUTPUT))
         print(f"[DONE] HWPX saved -> {HWPX_OUTPUT}")
