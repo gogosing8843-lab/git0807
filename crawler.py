@@ -1,3 +1,4 @@
+# VERIFIED_V2_20260905 - "혼유 사고" 포함
 from __future__ import annotations
 
 import json
@@ -122,7 +123,9 @@ def collect_listing_links(source: str, listing_url: str, limit: int = 80) -> lis
         full = urljoin(listing_url, href)
 
         if source == "부산일보":
-            if "busan.com/view/" not in full or "code=" not in full:
+            if "busan.com" not in full:
+                continue
+            if not any(token in full for token in ["/view/", "/article/", "news", "code="]):
                 continue
         else:
             if "kookje.co.kr" not in full or "newsbody.asp" not in full:
@@ -277,7 +280,7 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
         if isinstance(body, str):
             body = _clean_article_text(body)
             if len(body) >= 180 and not body.endswith(".."):
-                return body
+                return _strip_leading_caption_and_wire(body)
 
     # 2. 부산일보/국제신문 및 일반 뉴스 사이트에서 자주 쓰는 본문 선택자
     selectors = [
@@ -324,7 +327,7 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
         candidates.sort(key=lambda x: x[0], reverse=True)
         best = candidates[0][1]
         if len(best) >= 180:
-            return best
+            return _strip_leading_caption_and_wire(best)
 
     # 4. 마지막 fallback: 긴 p 태그들
     paras = []
@@ -334,9 +337,35 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
             paras.append(text)
     body = clean_text(" ".join(paras))
     if len(body) >= 180:
-        return body
+        return _strip_leading_caption_and_wire(body)
 
     return ""
+
+
+def _strip_leading_caption_and_wire(text: str) -> str:
+    text = clean_text(text)
+    text = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", text)
+
+    sentences = re.split(r'(?<=[.!?。！？])\s+', text)
+    cleaned = []
+    for i, sentence in enumerate(sentences):
+        sentence = clean_text(sentence)
+        if not sentence:
+            continue
+
+        # 기사 맨 앞 사진 설명/제공 문구 제거
+        if i <= 1 and (
+            "제공" in sentence
+            or "자료사진" in sentence
+            or ("사진" in sentence and any(x in sentence for x in ["촬영", "모습", "밝히며"]))
+        ):
+            continue
+
+        cleaned.append(sentence)
+
+    result = " ".join(cleaned)
+    result = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", result)
+    return clean_text(result)
 
 
 def _split_korean_sentences(text: str) -> list[str]:
@@ -474,21 +503,40 @@ def extract_body_and_summaries(soup: BeautifulSoup, source: str, title: str) -> 
 
 def choose_keyword(title: str, summary: str) -> str:
     text = f"{title} {summary}"
-    # 너무 일반적인 '부산'보다 구체적인 현안어를 먼저 선택
-    preferred = [
-        "가덕도", "신공항", "북항", "북극항로", "해수부", "원전", "고리",
-        "중대재해", "싱크홀", "도시철도", "재개발", "재건축", "정비사업",
-        "청년", "스타트업", "관광", "해양", "항만", "복지", "교통",
-        "병원", "안전", "경제", "산업", "시의회", "부산시",
-    ]
-    for kw in preferred:
-        if kw in text:
-            return kw
-    for kw in POLICY_KEYWORDS:
-        if kw in text:
-            return "부산시" if kw in ("부산광역시", "부산시") else kw
-    return "부산"
 
+    issue_rules = [
+        ("예인선 침몰", ["예인선", "침몰"]),
+        ("예인선 전복", ["예인선", "전복"]),
+        ("혼유 사고", ["혼유"]),
+        ("가덕도신공항", ["가덕도", "신공항"]),
+        ("북극항로", ["북극항로"]),
+        ("해양수도 특별법", ["해양수도", "특별법"]),
+        ("고리 1호기", ["고리 1호기"]),
+        ("중대재해", ["중대재해"]),
+        ("사상-하단선", ["사상", "하단"]),
+        ("싱크홀", ["싱크홀"]),
+        ("도시안전 통합시스템", ["도시안전", "통합시스템"]),
+        ("정비사업", ["정비사업"]),
+        ("청년창업재단", ["청년창업재단"]),
+        ("침례병원", ["침례병원"]),
+        ("마을지기사무소", ["마을지기사무소"]),
+        ("해양레저위크", ["해양레저"]),
+        ("낙동아트센터", ["낙동아트센터"]),
+        ("전월세", ["전월세"]),
+        ("스타트업", ["스타트업"]),
+    ]
+
+    for label, words in issue_rules:
+        if all(word in text for word in words):
+            return label
+
+    title_terms = re.findall(r"[가-힣A-Za-z0-9·~-]{2,}", title)
+    stop = {"부산", "부산시", "국제신문", "부산일보", "오늘", "관련", "대한", "정부"}
+    for term in title_terms:
+        if term not in stop and not re.fullmatch(r"\d+", term):
+            return term[:18]
+
+    return "부산시"
 
 def choose_department(title: str, summary: str) -> str:
     text = f"{title} {summary}"
@@ -501,18 +549,23 @@ def choose_department(title: str, summary: str) -> str:
 def choose_section(title: str, summary: str) -> str:
     text = f"{title} {summary}"
 
-    # 정치가 다른 분류보다 우선
+    social_priority = [
+        "사고", "침몰", "전복", "실종", "수색", "싱크홀", "붕괴",
+        "화재", "혼유", "교통사고", "범죄", "경찰", "해경",
+    ]
+    if any(word in text for word in social_priority):
+        return "사회 일반"
+
     if any(word in text for word in SECTION_RULES["정치"]):
         return "정치"
-
-    if any(word in text for word in SECTION_RULES["경제"]):
-        return "경제"
 
     if any(word in text for word in SECTION_RULES["시청·시의회"]):
         return "시청·시의회"
 
-    return "사회 일반"
+    if any(word in text for word in SECTION_RULES["경제"]):
+        return "경제"
 
+    return "사회 일반"
 
 def importance_score(item: dict) -> int:
     text = f"{item.get('title', '')} {item.get('summary', '')} {item.get('report_summary', '')}"
