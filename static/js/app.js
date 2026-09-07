@@ -30,22 +30,24 @@ document.addEventListener('DOMContentLoaded', () => {
         newsGrid.classList.add('hidden');
         emptyState.classList.add('hidden');
 
-        try {
-            const res = await fetch('/api/crawl', { method: 'POST' });
-            const data = await res.json();
-            if (data.success) {
-                articlesData = data.articles;
-                updateStats(data);
-                renderNews();
-            } else {
-                alert('뉴스 수집 중 오류가 발생했습니다: ' + (data.error || ''));
-            }
-        } catch (err) {
-            console.error(err);
-            alert('서버 연결 실패');
-        } finally {
-            btnCrawl.disabled = false;
-            btnCrawl.innerHTML = '<i class="fa-solid fa-rotate-right icon-spin-hover"></i> 뉴스 수집 실행';
+try {
+    const res = await fetch('./output/latest_news.json?ts=' + Date.now());
+
+    if (!res.ok) {
+        throw new Error('최신 뉴스 파일을 불러오지 못했습니다.');
+    }
+
+    const data = await res.json();
+
+    articlesData = data.articles || [];
+    updateStats(data);
+    renderNews();
+
+} catch (err) {
+    console.error(err);
+    alert('최신 뉴스 새로고침 실패');
+} finally {
+btnCrawl.innerHTML = '<i class="fa-solid fa-rotate-right icon-spin-hover"></i> 최신 뉴스 새로고침';
             loadingSpinner.classList.add('hidden');
             newsGrid.classList.remove('hidden');
         }
