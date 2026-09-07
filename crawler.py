@@ -1,4 +1,4 @@
-# VERIFIED_V4_20260905 - 부산일보 섹션수집 보강 / 2쪽 기사링크 제거
+# VERIFIED_V5_20260907 - 부산시정 선별강화 / 비시정기사 제외 / 캡션제거 / 부산일보 포함보강
 from __future__ import annotations
 
 import json
@@ -42,8 +42,23 @@ EXCLUDE_WORDS = [
 
 # 시정 보고서에 넣기에는 가치가 낮은 단순 생활정보 기사
 LOW_VALUE_TITLE_PATTERNS = [
-    r"대체로\s*맑", r"낮\s*최고\s*\d", r"아침\s*최저\s*\d",
-    r"오늘\s*날씨", r"내일\s*날씨", r"미세먼지.*좋음",
+    r"대체로\s*맑",
+    r"낮\s*최고\s*\d",
+    r"아침\s*최저\s*\d",
+    r"오늘\s*날씨",
+    r"오늘의\s*날씨",
+    r"내일\s*날씨",
+    r"미세먼지.*좋음",
+    r"골프아카데미",
+    r"국제문학제",
+    r"그림산책",
+    r"청년의\s*소리",
+    r"건강검진",
+    r"담석증",
+    r"복강경",
+    r"다이어트",
+    r"성큼\s*다가온\s*가을",
+    r"찜통더위",
 ]
 
 SOURCE_PAGES = {
@@ -382,24 +397,24 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
 
 
 def _strip_leading_caption_and_wire(text: str) -> str:
-    """기사 맨 앞의 통신사명·사진/DB 캡션을 보고서 문장에서 제거합니다."""
+    """기사 본문 앞의 통신사명·사진설명·DB 캡션을 제거합니다."""
     text = clean_text(text)
     if not text:
         return ""
 
-    # '연합뉴스 부산의...', '국제신문DB 소방시설...'처럼 문장부호 없이 붙는 경우
     leading_noise = [
         r"^(?:연합뉴스|뉴시스|뉴스1)\s*",
         r"^(?:국제신문\s*DB|국제신문DB|부산일보\s*DB|부산일보DB)\s*",
         r"^(?:사진|자료사진)\s*(?:=|:)?\s*",
     ]
-    changed = True
-    while changed:
+
+    for _ in range(3):
         before = text
         for pat in leading_noise:
             text = re.sub(pat, "", text, flags=re.I)
         text = clean_text(text)
-        changed = (text != before)
+        if text == before:
+            break
 
     sentences = re.split(r'(?<=[.!?。！？])\s+', text)
     cleaned = []
@@ -409,15 +424,24 @@ def _strip_leading_caption_and_wire(text: str) -> str:
         if not sentence:
             continue
 
-        # 앞 2문장 안의 전형적인 사진 캡션 제거
         caption_like = (
             "자료사진" in sentence
             or "국제신문DB" in sentence
             or "부산일보DB" in sentence
-            or re.search(r"(?:해경|부산시|경찰|소방|구청)\s*제공", sentence)
-            or ("사진" in sentence and any(x in sentence for x in ["촬영", "모습", "제공"]))
+            or "홈페이지 캡처" in sentence
+            or ("조감도" in sentence and len(sentence) < 140)
+            or ("전경" in sentence and len(sentence) < 120)
+            or ("모습" in sentence and len(sentence) < 130)
+            or ("기념촬영" in sentence and len(sentence) < 140)
+            or (
+                "제공" in sentence
+                and any(x in sentence for x in ["부산시", "김해시", "해경", "경찰", "소방", "센터", "연구소"])
+                and len(sentence) < 150
+            )
         )
-        if i <= 1 and caption_like:
+
+        # 기사 시작부의 캡션은 최대 3문장까지 제거
+        if i <= 2 and caption_like:
             continue
 
         sentence = re.sub(r"^(?:연합뉴스|뉴시스|뉴스1)\s+", "", sentence)
@@ -635,47 +659,47 @@ def importance_score(item: dict) -> int:
     title = item.get("title", "")
     score = 0
 
-    # 부산시정과 직접 연결된 현안
-    if "부산시" in text or "부산광역시" in text:
-        score += 14
-    if any(x in text for x in ["시의회", "시장", "시청", "조례", "예산"]):
-        score += 9
+    # 부산시정 직접 관련
+    if any(x in text for x in ["부산시", "부산광역시", "부산시의회", "부산시장", "부산시청"]):
+        score += 20
+    if any(x in text for x in ["시의회", "시장", "조례", "예산", "공문", "행정절차"]):
+        score += 8
+
+    # 부산 핵심 정책·사업·인프라
+    if any(x in text for x in [
+        "가덕도", "신공항", "북항", "해양수도", "해수부", "북극항로",
+        "도시철도", "사상-하단", "대저대교", "재개발", "재건축", "정비사업",
+        "공공기관 이전", "산업은행", "한국발전", "전기 차등요금",
+        "생곡", "소각장", "광역폐기물처리시설", "타바라", "부산비엔날레",
+    ]):
+        score += 10
+
+    # 중앙정부/국회와 부산이 직접 연결된 정책
     if any(x in text for x in ["정부", "국회", "특별법", "국정과제"]):
-        score += 8
+        score += 5
 
-    # 대형 정책·개발·교통·산업 현안
+    # 파급력 있는 안전 현안
     if any(x in text for x in [
-        "가덕도", "신공항", "북항", "해수부", "북극항로",
-        "도시철도", "사상-하단", "재개발", "재건축", "정비사업",
-        "산업", "기업", "투자", "수출", "일자리", "주거", "복지",
+        "침몰", "전복", "실종", "재난", "중대재해", "싱크홀", "붕괴", "침수"
     ]):
-        score += 8
-
-    # 시민 안전상 파급이 큰 사건은 주요 현안으로 인정
-    if any(x in text for x in [
-        "대형사고", "침몰", "전복", "실종", "재난",
-        "중대재해", "싱크홀", "붕괴", "침수",
-    ]):
-        score += 7
+        score += 6
 
     if re.search(r"\d+\s*(억|조|명|건|%|km|m|대|척|가구)", text):
         score += 3
-    if any(x in text for x in [
-        "확정", "발의", "착공", "개통", "추진", "투입",
-        "지원", "협약", "유치", "선정", "계획",
-    ]):
-        score += 4
 
-    # 일반적인 법원·형사 단신은 첫 장 TOP3에서 후순위
-    if any(x in title for x in [
-        "벌금형", "징역", "기소", "재판", "자격증 빌려",
-        "음주운전", "절도", "폭행",
-    ]):
-        score -= 14
+    # 부산 외 지역 단독 기사 감점
+    if any(x in text for x in ["김해시", "하동군", "경남 하동"]) and "부산" not in text:
+        score -= 18
 
-    # 단순 날씨/생활정보는 크게 감점
+    # 비시정·생활·칼럼·홍보성 기사 강한 감점
     if any(re.search(pat, title) for pat in LOW_VALUE_TITLE_PATTERNS):
-        score -= 25
+        score -= 35
+
+    if any(x in title for x in [
+        "벌금형", "징역", "기소", "재판",
+        "골프아카데미", "국제문학제", "그림산책", "오늘의 날씨"
+    ]):
+        score -= 15
 
     return score
 
@@ -683,15 +707,51 @@ def importance_score(item: dict) -> int:
 
 def relevant_policy_article(title: str, summary: str) -> bool:
     text = f"{title} {summary}"
+
     if any(word in text for word in EXCLUDE_WORDS):
         return False
 
-    # 단순 기상 기사는 제거하되, 부산시 재난대응·폭염대책 등 정책기사는 유지
+    # 생활정보·칼럼·신문사 행사·건강상식 등 제외
     if any(re.search(pat, title) for pat in LOW_VALUE_TITLE_PATTERNS):
-        if "부산시" not in text and "대책" not in text and "재난" not in text:
-            return False
+        return False
 
-    return any(word in text for word in POLICY_KEYWORDS)
+    exclude_terms = [
+        "국제골프아카데미",
+        "이병주하동국제문학제",
+        "그림산책",
+        "오늘의 날씨",
+        "담석증",
+        "복강경 절제술",
+    ]
+    if any(term in text for term in exclude_terms):
+        return False
+
+    # 부산 외 지역 단독 기사 제외
+    outside_only = any(x in text for x in ["김해시", "하동군", "경남 하동"])
+    if outside_only and "부산" not in text:
+        return False
+
+    direct_terms = [
+        "부산시", "부산광역시", "부산시의회", "부산시장", "부산시청",
+        "부산진구", "강서구", "해운대구", "사하구", "동래구",
+        "부산 남구", "부산 북구", "금정구", "연제구", "수영구",
+        "영도구", "부산 동구", "부산 서구", "부산 중구",
+        "기장군", "사상구",
+        "부산교통공사", "부산도시공사", "부산시설공단", "부산환경공단",
+        "부산항만공사", "한국거래소",
+    ]
+    if any(term in text for term in direct_terms):
+        return True
+
+    policy_terms = [
+        "가덕도신공항", "가덕도", "북항", "해양수도", "북극항로",
+        "도시철도", "사상-하단", "대저대교", "부산항",
+        "재개발", "재건축", "정비사업", "공공기관 이전",
+        "산업은행", "한국발전", "전기 차등요금",
+        "생곡", "광역폐기물처리시설", "타바라", "부산비엔날레",
+    ]
+    return any(term in text for term in policy_terms)
+
 
 
 def fetch_article(source: str, url: str) -> dict | None:
@@ -793,10 +853,14 @@ def create_hwpx(articles: list[dict], article_date, updated_at: datetime) -> Non
 
         if len({x.get("source") for x in top_issues}) == 1:
             other = next(
-                (x for x in ranked[3:] if x.get("source") != top_issues[0].get("source")),
+                (
+                    x for x in ranked[3:]
+                    if x.get("source") != top_issues[0].get("source")
+                    and x.get("importance", 0) >= top_issues[-1].get("importance", 0) - 5
+                ),
                 None,
             )
-            if other and other.get("importance", 0) >= top_issues[-1].get("importance", 0) - 3:
+            if other:
                 top_issues[-1] = other
 
         top_urls = {item["url"] for item in top_issues}
