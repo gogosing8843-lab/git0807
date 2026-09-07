@@ -1,4 +1,4 @@
-# VERIFIED_V6_20260907 - 캡션제거강화 / 시정직접성우선 / 현안키워드정교화
+# VERIFIED_V7_20260907 - 생곡부서고정 / 김해홍보제외 / 인디문화정리 / 돔구장정치분류 / 지면요약문구제거
 from __future__ import annotations
 
 import json
@@ -397,7 +397,7 @@ def _extract_article_body(soup: BeautifulSoup, source: str) -> str:
 
 
 def _strip_leading_caption_and_wire(text: str) -> str:
-    """기사 본문 앞의 통신사명·사진설명·DB 캡션을 최대한 제거합니다."""
+    """기사 본문 앞의 통신사명·사진설명·지면용 요약문구를 제거합니다."""
     text = clean_text(text)
     if not text:
         return ""
@@ -417,6 +417,15 @@ def _strip_leading_caption_and_wire(text: str) -> str:
         if text == before:
             break
 
+    # 국제신문 지면형 요약: "행정절차·공문 등 ... - 보고 등 ... - ..."
+    # 기사 본문 앞에 붙은 짧은 대시 요약 블록을 제거
+    text = re.sub(
+        r"^(?:[^.!?]{3,90}\s*-\s*){2,5}(?=[가-힣A-Za-z0-9])",
+        "",
+        text,
+    )
+    text = clean_text(text)
+
     sentences = re.split(r'(?<=[.!?。！？])\s+', text)
     cleaned = []
 
@@ -431,23 +440,18 @@ def _strip_leading_caption_and_wire(text: str) -> str:
         if not sentence:
             continue
 
-        # 기사 시작부의 사진/설명성 문장 제거
         caption_like = (
             any(term in sentence for term in caption_terms)
             and len(sentence) < 170
         )
 
-        # "부산항만공사 제공 부산항만공사..."처럼 제공문구와 본문이 붙은 경우 앞부분만 제거
         sentence = re.sub(
             r"^(?:부산항만공사|부산시설공단|부산시|김해시|부산경찰청|부산해경)\s*제공\s*",
             "",
             sentence,
         )
-
-        # "○○ 의원 홈페이지 캡처" 형태 제거
         sentence = re.sub(r"^[^.!?]{0,80}홈페이지\s*캡처\s*", "", sentence)
 
-        # "○○ 전경.", "○○ 모습." 류는 앞 3문장 안에서는 제거
         if i <= 2 and caption_like:
             continue
 
@@ -635,7 +639,7 @@ def choose_keyword(title: str, summary: str) -> str:
 
     stop = {
         "속보", "팩트체크", "종합", "오늘", "정부", "부산", "부산시",
-        "관련", "대한", "직원", "지역이", "238곳", "골프와", "김해",
+        "관련", "대한", "직원", "지역이", "키운", "238곳", "골프와", "김해", "오늘", "지난", "이번",
     }
 
     title_terms = re.findall(r"[가-힣A-Za-z0-9·~-]{2,}", cleaned_title)
@@ -649,6 +653,13 @@ def choose_keyword(title: str, summary: str) -> str:
 
 def choose_department(title: str, summary: str) -> str:
     text = f"{title} {summary}"
+
+    # 특정 현안은 장소명 등에 흔들리지 않도록 우선 고정
+    if "생곡" in text and "소각장" in text:
+        return "행정자치국"
+    if "북항" in text and "돔" in text:
+        return "문화체육국"
+
     for department, words in DEPARTMENT_RULES:
         if any(word in text for word in words):
             return department
@@ -658,15 +669,20 @@ def choose_department(title: str, summary: str) -> str:
 def choose_section(title: str, summary: str) -> str:
     text = f"{title} {summary}"
 
+    # 정치성 강한 기사 우선
+    political_priority = [
+        "부산시당", "국민의힘", "더불어민주당", "국회의원",
+        "고발", "선거관리위원회", "선거", "허위사실", "정당",
+    ]
+    if any(word in text for word in political_priority):
+        return "정치"
+
     social_priority = [
         "사고", "침몰", "전복", "실종", "수색", "싱크홀", "붕괴",
         "화재", "혼유", "교통사고", "범죄", "경찰", "해경",
     ]
     if any(word in text for word in social_priority):
         return "사회 일반"
-
-    if any(word in text for word in SECTION_RULES["정치"]):
-        return "정치"
 
     if any(word in text for word in SECTION_RULES["시청·시의회"]):
         return "시청·시의회"
@@ -675,6 +691,8 @@ def choose_section(title: str, summary: str) -> str:
         return "경제"
 
     return "사회 일반"
+
+
 
 def importance_score(item: dict) -> int:
     text = f"{item.get('title', '')} {item.get('summary', '')} {item.get('report_summary', '')}"
@@ -746,13 +764,14 @@ def relevant_policy_article(title: str, summary: str) -> bool:
     exclude_terms = [
         "국제골프아카데미", "이병주하동국제문학제", "그림산책",
         "오늘의 날씨", "담석증", "복강경 절제술",
+        "인디 영토", "인디문화", "라이브클럽",
     ]
     if any(term in text for term in exclude_terms):
         return False
 
-    # 부산 외 지역 단독 기사는 제외
-    if any(x in text for x in ["김해시", "하동군", "경남 하동"]):
-        if not any(x in text for x in ["부산시", "부산항", "부산광역시"]):
+    # 김해/하동 등 타지역 홍보성 기사는 부산항 언급만으로 포함하지 않음
+    if "김해시" in text or "하동군" in text or "경남 하동" in text:
+        if not any(x in text for x in ["부산시", "부산광역시", "부산시의회", "부산시장"]):
             return False
 
     direct_terms = [
